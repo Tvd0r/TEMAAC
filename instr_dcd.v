@@ -14,74 +14,94 @@ module instr_dcd (
     output[7:0] data_write
 );
 
-//Declarare variabile stari
-parameter SETUP = 2'b00;
-parameter DATA = 2'b01;
-parameter WAIT_READ = 2'b10;
+    // ---------------------------------------------------------
+    // DEFINITII INTERNE (Nu modificam antetul)
+    // ---------------------------------------------------------
+    
+    // Registri interni pentru a controla iesirile
+    reg read_int;
+    reg write_int;
+    reg [5:0] addr_int;
+    reg [7:0] data_write_int;
+    
+    // Conectam iesirile modulelor la registrii interni
+    assign read = read_int;
+    assign write = write_int;
+    assign addr = addr_int;
+    assign data_write = data_write_int;
+    
+    // Conectam direct datele citite la iesire (pentru viteza maxima)
+    assign data_out = data_read;
 
-//Variabila pentru cele 3 stari
-reg[1:0] state;
-//Variabila pentru inregistrarea tipul de operatie : 1- write si 0 - read
-reg operation;
-//Bit de selectie pentru zona de memorie , 1-[15:8] si 0 -[7:0]
-reg memory_zone;
-//Zona unde se va tine addresa registrului
-reg[5:0] addr_reg;
+    // Definire Stari FSM
+    localparam SETUP = 1'b0;
+    localparam DATA  = 1'b1;
+    
+    reg state;
+    
+    // Registri pentru a memora comanda intre cei doi octeti
+    reg operation;      // 1=Write, 0=Read
+    reg memory_zone;    // 1=High Byte, 0=Low Byte
+    reg [5:0] base_addr;// Adresa de baza (fara offset-ul de zona)
 
-//Model FSM de tip Masina Mealy
-always @(posedge clk or negedge rst_n) begin
-     
-     //Initilizare asincrona (Reset activ - rst_n = 0)
-     if(!rst_n) begin
-        state <= SETUP;
-        operation <= 0;
-        memory_zone <= 0;
-        addr_reg <= 0;
-        read <= 0;
-        write <= 0;
-        data_write <= 0;
-        data_out <= 0;
-    //Mod functionare normal (sincron)
-    end else begin
-        
-        
-        read <= 0;
-        write <= 0;
+    // ---------------------------------------------------------
+    // LOGICA FSM
+    // ---------------------------------------------------------
+    always @(posedge clk or negedge rst_n) begin
+        if(!rst_n) begin
+            state <= SETUP;
+            operation <= 0;
+            memory_zone <= 0;
+            base_addr <= 0;
             
-        case (state)
-            //Astepta primirea primului octet
-            SETUP:begin  
+            // Resetam iesirile
+            read_int <= 0;
+            write_int <= 0;
+            addr_int <= 0;
+            data_write_int <= 0;
+        end else begin
+            // Default: dezactivam semnalele de control (pulsuri de 1 ciclu)
+            read_int <= 0;
+            write_int <= 0;
+            
+            case (state)
+                SETUP: begin  
                     if (byte_sync) begin 
-                        operation  <= data_in[7];
+                        // 1. Capturam informatiile despre comanda
+                        operation   <= data_in[7];
                         memory_zone <= data_in[6];
-                        addr_reg <= data_in[5:0];
+                        base_addr   <= data_in[5:0];
+                        
+                        // 2. FIX CRITIC PENTRU CITIRE (Look-Ahead)
+                        // Daca e citire (bit 7 e 0), activam semnalul ACUM, nu mai tarziu.
+                        if (data_in[7] == 1'b0) begin
+                            read_int <= 1'b1;
+                            // Calculam adresa finala: Adresa Baza + Offset (Memory Zone)
+                            addr_int <= data_in[5:0] + data_in[6];
+                        end
+                        
                         state <= DATA;
                     end
                 end
-            //Asteapta primirea celui de al doilea octet     
-            DATA:begin
-                  if (byte_sync) begin
-                        if(operation == 1) begin
-                            write <= 1;
-                            data_write <= data_in;
-                            addr <= addr_reg;
-                            state <= SETUP;
-                        end else begin
-                            read <= 1;
-                            addr <= addr_reg;
-                            state <= WAIT_READ ;
-                       end
-                  end
+
+                DATA: begin
+                    if (byte_sync) begin
+                        // Daca comanda anterioara a fost SCRIERE
+                        if(operation == 1'b1) begin
+                            write_int <= 1'b1;
+                            data_write_int <= data_in;
+                            // Calculam adresa finala folosind valorile memorate
+                            addr_int <= base_addr + memory_zone;
+                        end
+                        
+                        // Indiferent daca a fost scriere sau citire, ne intoarcem la SETUP
+                        state <= SETUP;
+                    end
                 end 
-                //Asteapta un ciclu pentru citirea datelor din memorie
-            WAIT_READ:begin
-                    data_out <= data_read;
-                    state <= SETUP;
-                end
-            default: state <=SETUP ;
-        endcase
-    end
-end   
-  
+                
+                default: state <= SETUP;
+            endcase
+        end
+    end   
 
 endmodule
