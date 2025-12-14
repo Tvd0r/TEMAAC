@@ -28,9 +28,10 @@ Proiectul este structurat în **6 module Verilog** interconectate, fiecare cu re
 **Interfețe:**
 - **Intrări:**
   - `clk`, `rst_n` - Semnale de ceas și reset
-  - `sclk`, `cs_n`, `miso` - Semnale SPI de la master
+  - `sclk`, `cs_n`  - Semnale SPI de la master
+  - `miso` - Intrare date (funcționează intern ca MOSI)
 - **Ieșiri:**
-  - `mosi` - Date SPI către master
+  - `mosi` - Ieșire date (funcționează intern ca MISO)
   - `pwm_out` - Semnalul PWM generat
 
 **Interconexiuni:**
@@ -39,14 +40,19 @@ Proiectul este structurat în **6 module Verilog** interconectate, fiecare cu re
 - Conectează `regs` la `counter` și `pwm_gen` prin semnalele de configurare
 - Conectează `counter` la `pwm_gen` prin `counter_val`
 
+**Modificări**
+Pentru a asigura funcționarea corectă a proiectului, s-au efectuat următoarele modificări:
+-Inversarea semnalelor Miso/Mosi. Motivație: Testbench-ul simulează un Master care trimite date pe o linie numită "miso" și citește datele pe "mosi".
+-La instanțierea modulului spi_bridge am adăugat și semnalele de legătură între acesta și instr_dcd, iar la instr_dcd am adaugat legătura cu semnalul de intrare byte_sync, care lipsea. Motivație: În lipsa acestor adăugări modulele interne nu ar fi putut comunica între ele, ceea ce ar fi dus la nefuncționarea perifericului.
+
 ---
 
 ### 2. **spi_bridge.v** - Interfața SPI
 
-**Rol:** Implementează protocolul SPI slave și sincronizează comunicația cu ceasul sistemului.
+**Rol:** Implementează protocolul SPI slave utilizând o arhitectură asincronă față de ceas.
 
 **Funcționalități:**
-- Sincronizare SCLK cu CLK (sistem de 2 flip-flop-uri pentru evitarea metastabilității)
+- Funcționare directă in domeniul de ceas SCLK(asincron față de CLK)
 - Recepție date (MOSI) pe frontul crescător al SCLK
 - Transmisie date (MISO) pe frontul descrescător al SCLK
 - Generare puls `byte_sync` după recepția celor 8 biți
@@ -59,9 +65,9 @@ Proiectul este structurat în **6 module Verilog** interconectate, fiecare cu re
   - `data_out[7:0]` - byte-ul de transmis către master
 
 **Detalii tehnice:**
-- Shift register pentru serializare/deserializare
+- Registre de deplasare separate: shift_rx pentru deserializarea datelor de intrare (pe frontul crescător) și shift_tx pentru serializarea datelor de ieșire (pe frontul descrescător)
 - MISO devine High-Z când CS_N este inactiv
-- Contor de biți (3 biți) pentru tracking-ul byte-ului curent
+- MSB-ul din data_out este încărcat pe linia MISO în momentul startului tranzacției, eliminând latența de un ciclu de ceas
 
 ---
 
@@ -83,11 +89,11 @@ Bit 5-0: Base Address
 - Pentru **Read:** se ignoră (răspunsul vine pe MISO)
 
 **FSM (Finite State Machine):**
-- **SETUP:** Primește primul byte și decodifică comanda
-- **DATA:** Procesează al doilea byte (scrie sau finalizează citirea)
+- **SETUP:** Primește primul byte. Dacă este comandă de Citire, activează semnalele read și addr imediat (în același ciclu), fără a aștepta starea următoare.
+- **DATA:** Dacă este comandă de Scriere, preia datele și activează semnalul write.
 
 **⚠️ OPTIMIZARE CRITICĂ:**
-Pentru operații de citire, semnalul `read` și adresa sunt activate **anticipat** în starea SETUP pentru a permite modulului `regs` să pregătească datele la timp pentru transmisie SPI.
+Semnalul de citire este activat în starea SETUP (anticipat) pentru a compensa latențele și a avea datele pregătite pe MISO când începe al doilea byte.
 
 **Comunicație cu alte module:**
 - **← spi_bridge:**
@@ -160,10 +166,10 @@ Pentru operații de citire, semnalul `read` și adresa sunt activate **anticipat
 
 ```
 UP-counting (upnotdown=0):
-  count: 0 → 1 → ... → (period-1) → 0 (wrap-around)
+  count: 0 → 1 → ... → (period) → 0 (wrap-around)
 
 DOWN-counting (upnotdown=1):
-  count: (period-1) → ... → 1 → 0 → (period-1) (wrap-around)
+  count: (period) → ... → 1 → 0 → (period-1) (wrap-around)
 ```
 
 **Comunicație cu alte module:**
@@ -181,17 +187,17 @@ DOWN-counting (upnotdown=1):
 
 ### 6. **pwm_gen.v** - Generator PWM
 
-**Rol:** Generează semnalul PWM bazat pe valoarea counter-ului și comparatori.
+**Rol:** Generează semnalul PWM bazat pe valoarea counter-ului și a comparatoarelor.
 
 **Moduri de Funcționare (FUNCTIONS):**
-
-**Mode 0 (`functions=0`):** PWM Standard (Active High)
+**Regulă Prioritară : Dacă compare1 == compare2, atunci ieșirea este forțată la 0
+**Mode 0 (`functions=0`):** Align Left
 ```
-pwm_out = 1 dacă count_val < compare1
+pwm_out = 1 dacă count_val <= compare1 (compare1 != 0)
 pwm_out = 0 altfel
 ```
 
-**Mode 1 (`functions=1`):** PWM Inversat (Active Low)
+**Mode 1 (`functions=1`):** Align Right
 ```
 pwm_out = 0 dacă count_val < compare1
 pwm_out = 1 altfel
@@ -222,9 +228,10 @@ Altfel:
 ## Considerații de Design
 
 ### Sincronizare și Timing
-- **Clock Domain Crossing:** `spi_bridge` sincronizează SCLK cu CLK
+- **Clock Domains:** `spi_bridge` funcționează în domeniul asincron (pe ceasul sclk), în timop ce restul sistemului funcționeaza pe clk. Sincronizarea între cele două domenii se face prin semnalul byte_sync
 - **Pulse Generation:** Semnalele `read/write` sunt active doar 1 ciclu
 - **Look-Ahead Read:** În `instr_dcd`, citirile sunt inițiate anticipat pentru latență minimă
+- **Corecție ciclu: Contorul numără de la 0 la period pentru a asigura o durată a perioadei de period + 1 tick-uri
 
 ### Reset Behavior
 - Reset asincron, activ pe nivel LOW (`rst_n`)
@@ -235,6 +242,7 @@ Altfel:
 - Adresele invalide sunt ignorate în `regs`
 - MISO devine High-Z când CS_N este inactiv
 - Auto-clear pentru `count_reset` previne stări blocate
+- Protecție PWM: Cazurile de egalitate (compare1 == compare2) forțează ieșirea la 0 pentru a evita comportamente nedefinite
 
 ---
 
