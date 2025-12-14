@@ -14,10 +14,7 @@ module instr_dcd (
     output[7:0] data_write
 );
 
-    // ---------------------------------------------------------
-    // DEFINITII INTERNE (Nu modificam antetul)
-    // ---------------------------------------------------------
-    
+  
     // Registri interni pentru a controla iesirile
     reg read_int;
     reg write_int;
@@ -41,17 +38,14 @@ module instr_dcd (
     
     // Registri pentru a memora comanda intre cei doi octeti
     reg operation;      // 1=Write, 0=Read
-    reg memory_zone;    // 1=High Byte, 0=Low Byte
-    reg [5:0] base_addr;// Adresa de baza (fara offset-ul de zona)
+    reg [5:0] base_addr;// Adresa de baza
 
-    // ---------------------------------------------------------
+   
     // LOGICA FSM
-    // ---------------------------------------------------------
     always @(posedge clk or negedge rst_n) begin
         if(!rst_n) begin
             state <= SETUP;
             operation <= 0;
-            memory_zone <= 0;
             base_addr <= 0;
             
             // Resetam iesirile
@@ -65,36 +59,32 @@ module instr_dcd (
             write_int <= 0;
             
             case (state)
+            //Faza de setup
                 SETUP: begin  
                     if (byte_sync) begin 
-                        // 1. Capturam informatiile despre comanda
+                   
                         operation   <= data_in[7];
-                        memory_zone <= data_in[6];
                         base_addr   <= data_in[5:0];
                         
-                        // 2. FIX CRITIC PENTRU CITIRE (Look-Ahead)
-                        // Daca e citire (bit 7 e 0), activam semnalul ACUM, nu mai tarziu.
+                      
                         if (data_in[7] == 1'b0) begin
                             read_int <= 1'b1;
-                            // Calculam adresa finala: Adresa Baza + Offset (Memory Zone)
-                            addr_int <= data_in[5:0] + data_in[6];
+                            addr_int <= data_in[5:0]; 
                         end
                         
                         state <= DATA;
                     end
                 end
-
+                //Faza de date
                 DATA: begin
                     if (byte_sync) begin
-                        // Daca comanda anterioara a fost SCRIERE
+                        //Pentru operatia de write
                         if(operation == 1'b1) begin
                             write_int <= 1'b1;
                             data_write_int <= data_in;
-                            // Calculam adresa finala folosind valorile memorate
-                            addr_int <= base_addr + memory_zone;
+                            addr_int <= base_addr;
                         end
                         
-                        // Indiferent daca a fost scriere sau citire, ne intoarcem la SETUP
                         state <= SETUP;
                     end
                 end 
