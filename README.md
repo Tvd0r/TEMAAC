@@ -233,7 +233,7 @@ Altfel:
 - **Clock Domains:** `spi_bridge` funcționează în domeniul asincron (pe ceasul sclk), în timop ce restul sistemului funcționeaza pe clk. Sincronizarea între cele două domenii se face prin semnalul byte_sync
 - **Pulse Generation:** Semnalele `read/write` sunt active doar 1 ciclu
 - **Look-Ahead Read:** În `instr_dcd`, citirile sunt inițiate anticipat pentru latență minimă
-- **Corecție ciclu: Contorul numără de la 0 la period pentru a asigura o durată a perioadei de period + 1 tick-uri
+- **Corecție ciclu:** Contorul numără de la 0 la period pentru a asigura o durată a perioadei de period + 1 tick-uri
 
 ### Reset Behavior
 - Reset asincron, activ pe nivel LOW (`rst_n`)
