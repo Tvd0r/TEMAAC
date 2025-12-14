@@ -18,35 +18,39 @@ module counter (
     always @(posedge clk or negedge rst_n) 
     begin
         if (!rst_n) 
-	begin
+        begin
+            //Reset asincron
             count_val_reg <= 16'd0;
             prescale_cnt  <= 8'd0;
         end
 
         else if (count_reset) 
-	begin
+        begin
             count_val_reg <= 16'd0;
             prescale_cnt  <= 8'd0;
         end
 
         else if (en) 
-	begin
+        begin
+            //Se verifica daca s-a ajuns la valoarea de prescaler
             if (prescale_cnt == prescale) 
-	    begin
+            begin
                 prescale_cnt <= 8'd0;
-                if (!upnotdown) 
-		begin 
-                    if (count_val_reg == period - 1) 
-		    begin
+                
+                if (!upnotdown) // Count UP
+                begin 
+                    //Daca am atins maximul, resetam la 0
+                    if (count_val_reg >= period) 
+                    begin
                         count_val_reg <= 16'd0;
                     end else begin
                         count_val_reg <= count_val_reg + 1;
                     end
                 end 
-                else begin 
+                else begin // Count DOWN
                     if (count_val_reg == 16'd0) 
-		    begin
-                        count_val_reg <= period - 1;
+                    begin
+                        count_val_reg <= period;
                     end else begin
                         count_val_reg <= count_val_reg - 1;
                     end
@@ -54,6 +58,7 @@ module counter (
                 
             end 
             else begin
+                //Incrementare contor prescaler
                 prescale_cnt <= prescale_cnt + 1;
             end
         end
