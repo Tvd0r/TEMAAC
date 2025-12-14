@@ -42,7 +42,9 @@ Proiectul este structurat în **6 module Verilog** interconectate, fiecare cu re
 
 **Modificări**
 Pentru a asigura funcționarea corectă a proiectului, s-au efectuat următoarele modificări:
+
 -Inversarea semnalelor Miso/Mosi. Motivație: Testbench-ul simulează un Master care trimite date pe o linie numită "miso" și citește datele pe "mosi".
+
 -La instanțierea modulului spi_bridge am adăugat și semnalele de legătură între acesta și instr_dcd, iar la instr_dcd am adaugat legătura cu semnalul de intrare byte_sync, care lipsea. Motivație: În lipsa acestor adăugări modulele interne nu ar fi putut comunica între ele, ceea ce ar fi dus la nefuncționarea perifericului.
 
 ---
